@@ -12,16 +12,27 @@ hostname = socket.gethostname()
 
 app = Flask(__name__)
 
+# Set up logging to integrate with gunicorn's error logger, if available.
 gunicorn_error_logger = logging.getLogger('gunicorn.error')
 app.logger.handlers.extend(gunicorn_error_logger.handlers)
 app.logger.setLevel(logging.INFO)
 
 def get_redis():
     if not hasattr(g, 'redis'):
-        g.redis = Redis(host="redis", db=0, socket_timeout=5)
+        # Retrieve connection details from environment variables.
+        redis_host = os.environ.get("REDIS_HOST", "redis")
+        redis_port = int(os.environ.get("REDIS_PORT", 6379))
+        redis_password = os.environ.get("REDIS_PASSWORD", None)
+        g.redis = Redis(
+            host=redis_host,
+            port=redis_port,
+            password=redis_password,
+            db=0,
+            socket_timeout=5
+        )
     return g.redis
 
-@app.route("/", methods=['POST','GET'])
+@app.route("/", methods=['POST', 'GET'])
 def hello():
     voter_id = request.cookies.get('voter_id')
     if not voter_id:
@@ -33,6 +44,7 @@ def hello():
         redis = get_redis()
         vote = request.form['vote']
         app.logger.info('Received vote for %s', vote)
+        # Create a JSON payload with voter_id and vote.
         data = json.dumps({'voter_id': voter_id, 'vote': vote})
         redis.rpush('votes', data)
 
@@ -45,7 +57,6 @@ def hello():
     ))
     resp.set_cookie('voter_id', voter_id)
     return resp
-
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=8080, debug=True, threaded=True)
